@@ -5,11 +5,13 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
-	"time"
+	"sync"
+	//"time"
 
-	"github.com/Azure-Samples/azure-cosmos-db-cassandra-go-getting-started/model"
-	"github.com/Azure-Samples/azure-cosmos-db-cassandra-go-getting-started/operations"
-	"github.com/Azure-Samples/azure-cosmos-db-cassandra-go-getting-started/utils"
+	"github.com/joho/godotenv"
+	"github.com/griffinbird/go-cassandra-autoscale/model"
+	"github.com/griffinbird/go-cassandra-autoscale/operations"
+	"github.com/griffinbird/go-cassandra-autoscale/utils"
 )
 
 var (
@@ -31,7 +33,18 @@ func init() {
 	cosmosCassandraPort = os.Getenv("COSMOSDB_CASSANDRA_PORT")
 	cosmosCassandraUser = os.Getenv("COSMOSDB_CASSANDRA_USER")
 	cosmosCassandraPassword = os.Getenv("COSMOSDB_CASSANDRA_PASSWORD")
-
+	if cosmosCassandraContactPoint == "" || cosmosCassandraUser == "" || cosmosCassandraPassword == "" {
+		//log.Printf("cannot find the mandatory environment variables..")
+		err := godotenv.Load(".env")
+		//log.Printf("checking for .env file..")
+		if err != nil {
+			log.Printf("error loading .env file")
+		}
+		cosmosCassandraContactPoint = os.Getenv("COSMOSDB_CASSANDRA_CONTACT_POINT")
+		cosmosCassandraPort = os.Getenv("COSMOSDB_CASSANDRA_PORT")
+		cosmosCassandraUser = os.Getenv("COSMOSDB_CASSANDRA_USER")
+		cosmosCassandraPassword = os.Getenv("COSMOSDB_CASSANDRA_PASSWORD")	
+	}
 	if cosmosCassandraContactPoint == "" || cosmosCassandraUser == "" || cosmosCassandraPassword == "" {
 		log.Fatal("missing mandatory environment variables")
 	}
@@ -41,25 +54,52 @@ func main() {
 	session := utils.GetSession(cosmosCassandraContactPoint, cosmosCassandraPort, cosmosCassandraUser, cosmosCassandraPassword)
 	defer session.Close()
 
-	log.Println("Connected to Azure Cosmos DB")
+	//log.Println("Connected to Azure Cosmos DB")
 
 	operations.DropKeySpaceIfExists(keyspace, session)
 	operations.CreateKeySpace(keyspace, session)
-
 	operations.CreateUserTable(keyspace, table, session)
 
-	for i := 1; i <= 5; i++ {
-		name := "user-" + strconv.Itoa(i)
-		operations.InsertUser(keyspace, table, session, model.User{ID: i, Name: name, City: cities[rand.Intn(len(cities))]})
-	}
+	log.Println("*** Inserting users... ***")
 
-	user := operations.FindUser(keyspace, table, 1, session)
-	log.Println("Found User", user)
-	time.Sleep(2 * time.Second)
+	var parallel = true // 200 insertions across 10 go routines. False = 25 users
+	//var itemsToInsert = 100000000
 
-	users := operations.FindAllUsers(keyspace, table, session)
-	log.Println("Found Users")
-	for _, u := range users {
-		log.Println(u)
+	if !parallel {
+		for i := 1; i <= 25; i++ {
+			name := "user-" + strconv.Itoa(i)
+			insertRequestCharge, QueryDuration, insertError := operations.InsertUser(keyspace, table, session, model.User{ID: i, Name: name, City: cities[rand.Intn(len(cities))]})
+
+			if insertError != nil {
+				log.Fatal("Failed to create user: ", insertError)
+			}
+
+			log.Printf("User created. [Request Units: %v] [Duraton: %v]", insertRequestCharge, QueryDuration)
+		}
+	} else {
+		var threads = 17
+		var insertsPerThread = 10
+		var wg sync.WaitGroup
+		wg.Add(threads)
+		for i := 0; i < threads; i++ {
+			go func(i int) {
+				for j := 0; j < insertsPerThread; j++ {
+					var index = i*insertsPerThread + j
+
+					name := "user-" + strconv.Itoa(index)
+					insertRequestCharge, QueryDuartion, insertError := operations.InsertUser(keyspace, table, session, model.User{ID: index, Name: name, City: cities[rand.Intn(len(cities))]})
+
+					if insertError != nil {
+						log.Fatal("Failed to create user: ", insertError)
+					}
+
+					log.Printf("User %v created. [Request Units: %v] [Duraton: %v]", index, insertRequestCharge, QueryDuartion)
+					// Sleep between each insert
+					//time.Sleep(time.Second * 1)
+				}
+				wg.Done()
+			}(i)
+		}
+		wg.Wait()
 	}
 }

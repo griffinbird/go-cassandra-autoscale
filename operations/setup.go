@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Azure-Samples/azure-cosmos-db-cassandra-go-getting-started/utils"
+	"github.com/griffinbird/go-cassandra-autoscale/utils"
 	"github.com/gocql/gocql"
 )
 
 const (
 	dropKeyspace   = "DROP KEYSPACE IF EXISTS %s"
 	createKeyspace = "CREATE KEYSPACE %s WITH REPLICATION = { 'class' : 'NetworkTopologyStrategy', 'datacenter1' : 1 }"
-	createTable    = "CREATE TABLE %s.%s (user_id int PRIMARY KEY, user_name text, user_bcity text)"
+	createTable    = "CREATE TABLE %s.%s (user_id int PRIMARY KEY, user_name text, user_bcity text) WITH cosmosdb_provisioned_throughput=400"
+	//createTable    = "CREATE TABLE %s.%s (user_id int PRIMARY KEY, user_name text, user_bcity text) WITH cosmosdb_autoscale_max_throughput=1000"
 )
 
 // DropKeySpaceIfExists drops keyspace if it exists

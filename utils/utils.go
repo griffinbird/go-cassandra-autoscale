@@ -26,6 +26,9 @@ func GetSession(cosmosCassandraContactPoint, cosmosCassandraPort, cosmosCassandr
 	clusterConfig.Timeout = 10 * time.Second
 	clusterConfig.DisableInitialHostLookup = true
 
+	//If you setup geo-replication you need to set this property for the write region.
+	clusterConfig.PoolConfig.HostSelectionPolicy = gocql.DCAwareRoundRobinPolicy("Australia East")
+
 	// uncomment if you want to track time taken for individual queries
 	//clusterConfig.QueryObserver = timer{}
 
@@ -45,16 +48,27 @@ func ExecuteQuery(query string, session *gocql.Session) error {
 	return session.Query(query).Exec()
 }
 
-type timer struct {
+type Timer struct {
+	queryTime *time.Duration
+}
+func CreateTimer() Timer {
+	t := new(time.Duration)
+	return Timer{queryTime:t}
 }
 
-func (t timer) ObserveQuery(ctx context.Context, oq gocql.ObservedQuery) {
-	log.Printf("Time taken for '%s' = %v ", oq.Statement, time.Since(oq.Start))
+func (t Timer) ObserveQuery(ctx context.Context, oq gocql.ObservedQuery) {
+	//log.Printf("Time taken for %v", time.Since(oq.Start))
+	tmp := time.Since(oq.Start)
+	*t.queryTime = tmp
 }
 
-func (t timer) ObserveConnect(oc gocql.ObservedConnect) {
+func (t Timer) Duration()time.Duration{
+	return *t.queryTime
+}
+
+/*func (t timer) ObserveConnect(oc gocql.ObservedConnect) {
 	if oc.Err != nil {
 		log.Println("Connection error: ", oc.Err)
 	}
 	log.Printf("Time taken for connection = %v ", time.Since(oc.Start))
-}
+}*/
